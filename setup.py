@@ -5,7 +5,7 @@ from setuptools import find_packages, setup
 version = (Path(__file__).parent / "conpycon/VERSION").read_text('ascii').strip()
 
 install_requires = [
-
+    'pyyaml>=5.3.1',
 ]
 
 setup(
