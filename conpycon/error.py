@@ -53,3 +53,21 @@ class CommandFuncNotFound(CommandError):
     def __init__(self, cmd_name: str, func_name: str):
         self.message = f"In command '{cmd_name}': func '{func_name}' does not exist"
         super().__init__(self.message)
+
+""" Dispatch Errors """
+
+class DispatchError(Exception):
+    """
+    Brief:
+        This base exception for dispatch related errors.
+    """
+    pass
+
+class DispatchNotFoundError(DispatchError):
+    """
+    Brief:
+        This error is raised if a dispatched command is not found.
+    """
+    def __init__(self, cmd_name: str):
+        self.message = f"Unrecognized command: '{cmd_name}'"
+        super().__init__(self.message)

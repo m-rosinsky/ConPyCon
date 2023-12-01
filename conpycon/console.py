@@ -16,8 +16,9 @@ from conpycon.error import *
 from conpycon.get_key import get_key, Key
 
 # Default banner and prompt for a Console.
-DEFAULT_BANNER = None
+DEFAULT_BANNER = ''
 DEFAULT_PROMPT = '> '
+DEFAULT_EXIT = ''
 
 MAX_CMD_LEN = 1024
 MAX_HIST_LEN = 20
@@ -36,7 +37,8 @@ class Console:
     """
     def __init__(self, command_file, cmd_list,
                  banner=DEFAULT_BANNER,
-                 prompt=DEFAULT_PROMPT):
+                 prompt=DEFAULT_PROMPT,
+                 exit_msg=DEFAULT_EXIT):
         # Synthesize the symbol table.
         self.symbol_table = {}
         for cmd in cmd_list:
@@ -48,6 +50,7 @@ class Console:
         # Console variables.
         self.banner = banner
         self.prompt_str = prompt
+        self.exit_msg = exit_msg
         self.is_running = False
 
         # Console history.
@@ -93,9 +96,37 @@ class Console:
                 break
 
             # Dispatch parse.
-            print(cmd_parse)
+            try:
+                self._dispatch(cmd_parse)
+            except DispatchError as e:
+                print(f"[\033[31mError\033[0m] {e}")
 
         # Exit.
+        print(self.exit_msg)
+
+    def _dispatch(self, cmd_parse: list):
+        """
+        Brief:
+            This function dispatches an action for a given parse of a command.
+
+        Arguments:
+            cmd_parse: list
+                The parsed command.
+
+        Raises:
+            DispatchError on errors.
+        """
+        # Check that the command name exists.
+        cmd_class = None
+        for cmd in self._cmd_tree:
+            if cmd.name == cmd_parse[0]:
+                cmd_class = cmd
+
+        if cmd_class is None:
+            raise DispatchNotFoundError(cmd_parse[0])
+        
+        # Call the function associated with the command.
+        cmd_class.func()
 
     def _prompt(self) -> str:
         """
