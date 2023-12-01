@@ -7,6 +7,7 @@ Brief:
     instantiate a new console object.
 """
 
+import shlex
 import sys
 import yaml
 
@@ -44,9 +45,13 @@ class Console:
         # Parse the YAML.
         self._cmd_tree = self._parse_command_file(command_file)
 
+        # Console variables.
         self.banner = banner
         self.prompt_str = prompt
         self.is_running = False
+
+        # Console history.
+        self.history = []
 
     def run(self):
         """
@@ -67,7 +72,30 @@ class Console:
                 break
 
             # Handle the command.
-            print(cmd_str)
+            if cmd_str is not None:
+                cmd_str = cmd_str.strip()
+
+            # If this command matches the last entered command, don't
+            # push to history.
+            if len(self.history) == 0 or self.history[0] != cmd_str:
+                self.history.insert(0, cmd_str)
+                if len(self.history) > MAX_HIST_LEN:
+                    self.history.pop()
+
+            # Split the string.
+            try:
+                cmd_parse = shlex.split(cmd_str)
+            except ValueError:
+                continue
+
+            # Special case for exit commands.
+            if cmd_parse[0].upper() in ["EXIT", "QUIT", "Q"]:
+                break
+
+            # Dispatch parse.
+            print(cmd_parse)
+
+        # Exit.
 
     def _prompt(self) -> str:
         """
@@ -87,6 +115,10 @@ class Console:
         # A copy of the current command if the user begins scrolling through
         # command history.
         cmd_cpy = ""
+
+        # History index tracks which historical command we are searching.
+        # -1 for "not searching".
+        hist_idx = -1
 
         # Display the prompt.
         print(self.prompt_str, end='')
@@ -144,10 +176,63 @@ class Console:
 
             # Up arrow.
             if inp == Key.UP:
+                # Upper bounds check.
+                if hist_idx + 1 >= len(self.history):
+                    continue
+
+                hist_idx += 1
+
+                # Create a copy of the current command buffer if this
+                # is the first up arrow press.
+                if hist_idx == 0:
+                    cmd_cpy = cmd
+
+                # Put cursor at end of line.
+                for _ in range(cmd_idx, len(cmd)):
+                    print(" ", end="")
+
+                # Blank the line and return cursor to beginning.
+                for _ in range(len(cmd)):
+                    print("\b", end="")
+                    print(" ", end="")
+                    print("\b", end="")
+
+                # Retreive historical command.
+                cmd = self.history[hist_idx]
+                cmd_idx = len(cmd)
+
+                # Print command.
+                print(cmd, end="")
                 continue
 
             # Down arrow.
             if inp == Key.DOWN:
+                # Lower bounds check.
+                if hist_idx == -1:
+                    continue
+
+                hist_idx -= 1
+
+                # Put cursor at end of line.
+                for _ in range(cmd_idx, len(cmd)):
+                    print(" ", end="")
+
+                # Blank the line and return cursor to beginning.
+                for _ in range(len(cmd)):
+                    print("\b", end="")
+                    print(" ", end="")
+                    print("\b", end="")
+
+                # Get either the saved command, or historical command.
+                if hist_idx == -1:
+                    cmd = cmd_cpy
+                else:
+                    cmd = self.history[hist_idx]
+
+                cmd_idx = len(cmd)
+                
+                # Print command.
+                print(cmd, end="")
                 continue
 
             # Right arrow.
