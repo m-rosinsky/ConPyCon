@@ -123,6 +123,121 @@ class Console:
         # Exit.
         print(self.exit_msg)
 
+    def _parse_command_file(self, command_file: str) -> list:
+        """
+        Brief:
+            This function parses the provided command YAML file and forms
+            a tree of Command classes.
+
+        Arguments:
+            command_file: str
+                The path to the YAML command file.
+
+        Returns: Command
+            A list of Command classes.
+
+        Raises:
+            OSError on error interacting with 'command_file'
+        """
+        try:
+            yaml_data = self._load_yaml(command_file)
+        except OSError:
+            raise
+
+        # Assert that the 'commands' section exists.
+        if yaml_data is None or 'commands' not in yaml_data:
+            raise CommandNoCommandsError(command_file)
+        
+        # Assert the 'commands' section contains a dictionary of data.
+        command_data = yaml_data['commands']
+        if not isinstance(command_data, dict):
+            raise CommandInvalidTypeError('commands', 'dict', type(command_data).__name__)
+
+        # Create Command classes for each command in 'commands' section.
+        com_list = []
+        for name, data in yaml_data['commands'].items():
+            com = self._create_command(name, data)
+            print(com.name)
+            print(com.subcommands)
+            com_list.append(com)
+
+        return com_list
+
+    def _create_command(self, name: str, data: dict) -> Command:
+        """
+        Brief:
+            This function creates a Command class from
+            the YAML data under the command header.
+
+        Arguments:
+            name: str
+                The name of the command.
+
+            data: dict
+                The YAML data
+
+        Returns: Command
+            The Command class.
+        """
+        # Get the command func.
+        if data is None or 'func' not in data:
+            raise CommandNoFuncError(name)
+        
+        # Assert command func is of type string.
+        func_name = data['func']
+        if not isinstance(func_name, str):
+            raise CommandInvalidTypeError('func', 'str', type(func_name).__name__)
+
+        # Find function within symbol table to attach command string to.
+        if func_name in self.symbol_table and callable(self.symbol_table[func_name]):
+            func = self.symbol_table[func_name]
+        else:
+            raise CommandFuncNotFound(name, func_name)
+
+        # Find subcommands.
+        sc_list = []
+        if 'subcommands' in data:
+            sc_yaml = data['subcommands']
+            if not isinstance(sc_yaml, dict):
+                raise CommandInvalidTypeError('subcommands', 'dict', type(sc_yaml).__name__)
+            for sc_name, sc_data in sc_yaml.items():
+                sc = self._create_command(sc_name, sc_data)
+                sc_list.append(sc)
+
+        com = Command(name, func)
+        com.subcommands = sc_list
+        return com
+
+    def _load_yaml(self, file: str) -> dict:
+        """
+        Brief:
+            This function reads in a file and uses the yaml module
+            to create a dictionary.
+
+        Arguments:
+            file: str
+                The path to the YAML file.
+
+        Returns:
+            Dictionary of parsed YAML data.
+
+        Raises:
+            OSError on error opening 'file'.
+        """
+        # Open the command YAML file.
+        try:
+            with open(file, 'r', encoding='utf-8') as yf:
+                file_data = ""
+                for line in yf:
+                    file_data += line
+
+                yaml_data = yaml.safe_load(file_data) or {}
+        except OSError:
+            # Propagate to caller.
+            raise
+
+        return yaml_data
+
     def _dispatch(self, cmd_parse: list):
         """
         Brief:
@@ -373,105 +488,3 @@ class Console:
                 print("\b", end="")
 
         return cmd
-
-    def _parse_command_file(self, command_file: str) -> list:
-        """
-        Brief:
-            This function parses the provided command YAML file and forms
-            a tree of Command classes.
-
-        Arguments:
-            command_file: str
-                The path to the YAML command file.
-
-        Returns: Command
-            A list of Command classes.
-
-        Raises:
-            OSError on error interacting with 'command_file'
-        """
-        try:
-            yaml_data = self._load_yaml(command_file)
-        except OSError:
-            raise
-
-        # Assert that the 'commands' section exists.
-        if yaml_data is None or 'commands' not in yaml_data:
-            raise CommandNoCommandsError(command_file)
-        
-        # Assert the 'commands' section contains a dictionary of data.
-        command_data = yaml_data['commands']
-        if not isinstance(command_data, dict):
-            raise CommandInvalidTypeError('commands', 'dict', type(command_data).__name__)
-
-        # Create Command classes for each command in 'commands' section.
-        com_list = []
-        for name, data in yaml_data['commands'].items():
-            com = self._create_command(name, data)
-            com_list.append(com)
-
-        return com_list
-
-    def _create_command(self, name: str, data: dict) -> Command:
-        """
-        Brief:
-            This function creates a Command class from
-            the YAML data under the command header.
-
-        Arguments:
-            name: str
-                The name of the command.
-
-            data: dict
-                The YAML data
-
-        Returns: Command
-            The Command class.
-        """
-        # Get the command func.
-        if data is None or 'func' not in data:
-            raise CommandNoFuncError(name)
-        
-        # Assert command func is of type string.
-        func_name = data['func']
-        if not isinstance(func_name, str):
-            raise CommandInvalidTypeError('func', 'str', type(func_name).__name__)
-
-        # Find function within globals to attach command string to.
-        if func_name in self.symbol_table and callable(self.symbol_table[func_name]):
-            func = self.symbol_table[func_name]
-        else:
-            raise CommandFuncNotFound(name, func_name)
-
-        com = Command(name, func)
-        return com
-
-    def _load_yaml(self, file: str) -> dict:
-        """
-        Brief:
-            This function reads in a file and uses the yaml module
-            to create a dictionary.
-
-        Arguments:
-            file: str
-                The path to the YAML file.
-
-        Returns:
-            Dictionary of parsed YAML data.
-
-        Raises:
-            OSError on error opening 'file'.
-        """
-        # Open the command YAML file.
-        try:
-            with open(file, 'r', encoding='utf-8') as yf:
-                file_data = ""
-                for line in yf:
-                    file_data += line
-
-                yaml_data = yaml.safe_load(file_data) or {}
-        except OSError:
-            # Propagate to caller.
-            raise
-
-        return yaml_data
