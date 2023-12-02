@@ -23,6 +23,23 @@ DEFAULT_EXIT = ''
 MAX_CMD_LEN = 1024
 MAX_HIST_LEN = 20
 
+def lcp(l: list) -> str:
+    """
+    Brief:
+        This is a helper function to find the longest common prefix
+        of a list of strings.
+    """
+    if not l:
+        return ""
+    
+    min_l = min(len(s) for s in l)
+
+    for i in range(min_l):
+        if not all(s[i] == l[0][i] for s in l):
+            return l[0][:i]
+        
+    return l[0][:min_l]
+
 class Console:
     """
     Brief:
@@ -46,6 +63,8 @@ class Console:
 
         # Parse the YAML.
         self._cmd_tree = self._parse_command_file(command_file)
+        self._root = Command("", None)
+        self._root.subcommands = self._cmd_tree
 
         # Console variables.
         self.banner = banner
@@ -203,6 +222,54 @@ class Console:
 
             # Tab Completions.
             if inp == Key.TAB:
+                parse = shlex.split(cmd)
+                if len(cmd) > 0 and cmd[len(cmd) - 1] == " " and cmd_idx == len(cmd):
+                    parse.append("")
+                
+                # Check for empty command.
+                if parse is None or len(parse) == 0:
+                    continue
+
+                # Node for the tree structure.
+                cur_node = self._root
+
+                for token in parse:
+                    match_nodes = [c for c in cur_node.subcommands if c.name.startswith(token)]
+
+                    # Check for no matches.
+                    if not match_nodes:
+                        break
+
+                    # Traverse tree.
+                    cur_node = match_nodes[0]
+
+                # If there are no matches returned, do nothing.
+                if not match_nodes:
+                    continue
+
+                # If there is only one match returned, we can autofill.
+                if len(match_nodes) == 1:
+                    parse[len(parse) - 1] = match_nodes[0].name
+                    for _ in range(cmd_idx):
+                        print("\b", end="")
+                    cmd = shlex.join(parse) + " "
+                    cmd_idx = len(cmd)
+                    print(cmd, end="")
+                    continue
+
+                # If there are multiple matches, list them.
+                print("")
+                for node in match_nodes:
+                    print(node.name, end="\t")
+
+                # Find the longest common prefix and auto-fill.
+                match_names = [node.name for node in match_nodes]
+                fill = lcp(match_names)
+                if len(fill) > 0:
+                    parse[len(parse) - 1] = fill
+                    cmd = shlex.join(parse)
+                cmd_idx = len(cmd)
+                print(f"\n{self.prompt_str}{cmd}", end="")
                 continue
 
             # Up arrow.
