@@ -6,6 +6,15 @@ Brief:
     This file contains error types for conpycon.
 """
 
+""" YAML Errors """
+
+class YAMLError(BaseException):
+    """
+    Brief:
+        This error is raised when the YAML file cannot be read.
+    """
+    pass
+
 """ Command Errors """
 
 class CommandError(BaseException):

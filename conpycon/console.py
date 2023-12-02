@@ -7,12 +7,13 @@ Brief:
     instantiate a new console object.
 """
 
+import argparse
 import shlex
 import sys
 import yaml
 
-from conpycon.command import Command
-from conpycon.error import *
+from conpycon.command_tree import CommandNode
+from conpycon.exceptions import *
 from conpycon.get_key import get_key, Key
 
 # Default banner and prompt for a Console.
@@ -20,10 +21,16 @@ DEFAULT_BANNER = ''
 DEFAULT_PROMPT = '> '
 DEFAULT_EXIT = ''
 
+# Prompt and history lengths.
 MAX_CMD_LEN = 1024
 MAX_HIST_LEN = 20
 
-def lcp(l: list) -> str:
+# YAML section names.
+SECTION_COMMANDS = 'commands'
+SECTION_ACTION = 'action'
+SECTION_SUBCOMMANDS = 'subcommands'
+
+def _lcp(l: list) -> str:
     """
     Brief:
         This is a helper function to find the longest common prefix
@@ -61,10 +68,16 @@ class Console:
         for cmd in cmd_list:
             self.symbol_table[cmd.__name__] = cmd
 
+        # The _parsers object is an array of argparse parsers for each
+        # top-level command specified in the YAML. This will be populated
+        # in the _parse_yaml function.
+        self._parsers = []
+
         # Parse the YAML.
-        self._cmd_tree = self._parse_command_file(command_file)
-        self._root = Command("", None)
-        self._root.subcommands = self._cmd_tree
+        # This returns a CommandNode that is a tree of strings used in
+        # autocompletion, since argparse does not allow its subparsers
+        # to be accessed directly.
+        self._root_node = self._parse_yaml(command_file)
 
         # Console variables.
         self.banner = banner
@@ -123,90 +136,79 @@ class Console:
         # Exit.
         print(self.exit_msg)
 
-    def _parse_command_file(self, command_file: str) -> list:
+    def _parse_yaml(self, file: str) -> CommandNode:
         """
         Brief:
-            This function parses the provided command YAML file and forms
-            a tree of Command classes.
+            This function parses the command YAML file and returns
+            a root Command class node.
 
-        Arguments:
-            command_file: str
-                The path to the YAML command file.
+            The root node is a blank command used to house all
+            root-level commands as subcommands.
 
-        Returns: Command
-            A list of Command classes.
+            This function also builds out the argparse tree.
 
         Raises:
-            OSError on error interacting with 'command_file'
+            YAMLError on errors opening/reading the YAML file.
+
+            CommandError on invalid formatting of the YAML file.
         """
+        # Load YAML data.
         try:
-            yaml_data = self._load_yaml(command_file)
+            yaml_data = self._load_yaml(file)
         except OSError:
-            raise
-
-        # Assert that the 'commands' section exists.
-        if yaml_data is None or 'commands' not in yaml_data:
-            raise CommandNoCommandsError(command_file)
+            raise YAMLError
         
-        # Assert the 'commands' section contains a dictionary of data.
-        command_data = yaml_data['commands']
-        if not isinstance(command_data, dict):
-            raise CommandInvalidTypeError('commands', 'dict', type(command_data).__name__)
+        # Get 'commands' section
+        if yaml_data is None or SECTION_COMMANDS not in yaml_data:
+            raise CommandNoCommandsError
+        
+        # Type checking.
+        command_section = yaml_data[SECTION_COMMANDS]
+        if not isinstance(command_section, dict):
+            raise CommandInvalidTypeError(SECTION_COMMANDS, 'dict', type(command_section).__name__)
+        
+        # Create an empty root node for the command tree. The children of
+        # the blank root node hold the top level commands.
+        root_node = CommandNode("")
 
-        # Create Command classes for each command in 'commands' section.
-        com_list = []
-        for name, data in yaml_data['commands'].items():
-            com = self._create_command(name, data)
-            print(com.name)
-            print(com.subcommands)
-            com_list.append(com)
+        # For each command in the command section of the YAML, create a
+        # parser, and an entry in the command tree.
+        for cmd_name, cmd_data in command_section.items():
+            cmd_node, cmd_parser = self._parse_command(cmd_name, cmd_data)
+            self._parsers.append(cmd_parser)
+            root_node.add_child(cmd_node)
 
-        return com_list
+        # Return the root node.
+        return root_node
 
-    def _create_command(self, name: str, data: dict) -> Command:
+    def _parse_command(self,
+                       cmd_name: str,
+                       cmd_data: dict) -> (CommandNode, argparse.ArgumentParser):
         """
         Brief:
-            This function creates a Command class from
-            the YAML data under the command header.
+            This function creates a node for the command tree and a parser
+            for a command in the YAML.
 
         Arguments:
-            name: str
-                The name of the command.
+            cmd_name: str
+                The name of the command
+            cmd_data: dict
+                The command YAML data.
 
-            data: dict
-                The YAML data
-
-        Returns: Command
-            The Command class.
+        Returns: (CommandNode, argparse.ArgumentParser)
+            A tuple of the node and argparse parser for the command.
         """
-        # Get the command func.
-        if data is None or 'func' not in data:
-            raise CommandNoFuncError(name)
-        
-        # Assert command func is of type string.
-        func_name = data['func']
-        if not isinstance(func_name, str):
-            raise CommandInvalidTypeError('func', 'str', type(func_name).__name__)
+        # Create the command node.
+        cmd_node = CommandNode(cmd_name)
 
-        # Find function within symbol table to attach command string to.
-        if func_name in self.symbol_table and callable(self.symbol_table[func_name]):
-            func = self.symbol_table[func_name]
-        else:
-            raise CommandFuncNotFound(name, func_name)
+        # Create the argument parser.
+        cmd_parser = argparse.ArgumentParser(
+            prog=cmd_name,
+        )
+        func = self.symbol_table[cmd_data[SECTION_ACTION]]
+        cmd_parser.set_defaults(func=func)
 
-        # Find subcommands.
-        sc_list = []
-        if 'subcommands' in data:
-            sc_yaml = data['subcommands']
-            if not isinstance(sc_yaml, dict):
-                raise CommandInvalidTypeError('subcommands', 'dict', type(sc_yaml).__name__)
-            for sc_name, sc_data in sc_yaml.items():
-                sc = self._create_command(sc_name, sc_data)
-                sc_list.append(sc)
-
-        com = Command(name, func)
-        com.subcommands = sc_list
-        return com
+        return (cmd_node, cmd_parser)
 
     def _load_yaml(self, file: str) -> dict:
         """
@@ -251,16 +253,17 @@ class Console:
             DispatchError on errors.
         """
         # Check that the command name exists.
-        cmd_class = None
-        for cmd in self._cmd_tree:
-            if cmd.name == cmd_parse[0]:
-                cmd_class = cmd
+        cmd_parser = None
+        for cmd in self._parsers:
+            if cmd.prog == cmd_parse[0]:
+                cmd_parser = cmd
 
-        if cmd_class is None:
+        if cmd_parser is None:
             raise DispatchNotFoundError(cmd_parse[0])
         
-        # Call the function associated with the command.
-        cmd_class.func()
+        # Call the parser.
+        args = cmd_parser.parse_args(cmd_parse)
+        args.func()
 
     def _prompt(self) -> str:
         """
@@ -346,10 +349,10 @@ class Console:
                     continue
 
                 # Node for the tree structure.
-                cur_node = self._root
+                cur_node = self._root_node
 
                 for token in parse:
-                    match_nodes = [c for c in cur_node.subcommands if c.name.startswith(token)]
+                    match_nodes = [c for c in cur_node.children if c.name.startswith(token)]
 
                     # Check for no matches.
                     if not match_nodes:
@@ -379,7 +382,7 @@ class Console:
 
                 # Find the longest common prefix and auto-fill.
                 match_names = [node.name for node in match_nodes]
-                fill = lcp(match_names)
+                fill = _lcp(match_names)
                 if len(fill) > 0:
                     parse[len(parse) - 1] = fill
                     cmd = shlex.join(parse)
