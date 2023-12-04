@@ -6,8 +6,6 @@ Brief:
     This file contains the Command class.
 """
 
-import argparse
-
 class CommandNode:
     """
     Brief:

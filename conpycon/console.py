@@ -7,7 +7,6 @@ Brief:
     instantiate a new console object.
 """
 
-import argparse
 import shlex
 import sys
 import yaml
@@ -59,14 +58,14 @@ class Console:
     Raises:
         CommandError on errors parsing the command file.
     """
-    def __init__(self, command_file, cmd_list,
+    def __init__(self, command_file, actions,
                  banner=DEFAULT_BANNER,
                  prompt=DEFAULT_PROMPT,
                  exit_msg=DEFAULT_EXIT):
         # Synthesize the symbol table.
         self.symbol_table = {}
-        for cmd in cmd_list:
-            self.symbol_table[cmd.__name__] = cmd
+        for action in actions:
+            self.symbol_table[action.__name__] = action
 
         # The _parsers object is an array of argparse parsers for each
         # top-level command specified in the YAML. This will be populated
@@ -109,6 +108,10 @@ class Console:
             # Handle the command.
             if cmd_str is not None:
                 cmd_str = cmd_str.strip()
+
+            # Check for empty command.
+            if len(cmd_str) == 0:
+                continue
 
             # If this command matches the last entered command, don't
             # push to history.
@@ -204,11 +207,69 @@ class Console:
         # Create the argument parser.
         cmd_parser = argparse.ArgumentParser(
             prog=cmd_name,
+            add_help=False,
         )
-        func = self.symbol_table[cmd_data[SECTION_ACTION]]
-        cmd_parser.set_defaults(func=func)
+        cmd_parser.add_argument(
+            '-h',
+            '--help',
+            action='help',
+            default=argparse.SUPPRESS,
+            help='Show this help message',
+        )
+        cmd_usage = cmd_parser.format_usage().split(':')[1].strip()
+        cmd_parser.usage = cmd_usage
 
+        # Assert there is an 'action' section, and that it is a str.
+        if cmd_data is None or SECTION_ACTION not in cmd_data:
+            raise CommandNoActionError(cmd_name)
+
+        cmd_action = cmd_data[SECTION_ACTION]
+        if not isinstance(cmd_action, str):
+            raise CommandInvalidTypeError(SECTION_ACTION, 'str', type(cmd_action).__name__)
+        
+        action = self.symbol_table.get(cmd_action)
+        if action is None:
+            raise CommandActionNotFound(cmd_name, cmd_action)
+
+        cmd_parser.set_defaults(action=action)
         return (cmd_node, cmd_parser)
+
+    def _dispatch(self, cmd_parse: list):
+        """
+        Brief:
+            This function dispatches an action for a given parse of a command.
+
+        Arguments:
+            cmd_parse: list
+                The parsed command.
+
+        Raises:
+            DispatchError on errors.
+        """
+        # Check that the command name exists.
+        cmd_parser = None
+        for cmd in self._parsers:
+            if cmd.prog == cmd_parse[0]:
+                cmd_parser = cmd
+
+        if cmd_parser is None:
+            raise DispatchNotFoundError(cmd_parse[0])
+        
+        # Call the parser.
+        try:
+            args = cmd_parser.parse_args(cmd_parse[1:])
+        except SystemExit:
+            print(f"[\033[31mError\033[0m] {cmd_parser.error_msg}")
+            print(f"[\033[36mUsage\033[0m] {cmd_parser.usage}")
+            print("[\033[36mPositionals\033[0m]", end="")
+            for arg in cmd_parser._action_groups:
+                print(arg._group_actions)
+                for a in arg._group_actions.option_strings:
+                    print(a)
+            return
+        
+        # Call the action.
+        args.action()
 
     def _load_yaml(self, file: str) -> dict:
         """
@@ -239,31 +300,6 @@ class Console:
             raise
 
         return yaml_data
-
-    def _dispatch(self, cmd_parse: list):
-        """
-        Brief:
-            This function dispatches an action for a given parse of a command.
-
-        Arguments:
-            cmd_parse: list
-                The parsed command.
-
-        Raises:
-            DispatchError on errors.
-        """
-        # Check that the command name exists.
-        cmd_parser = None
-        for cmd in self._parsers:
-            if cmd.prog == cmd_parse[0]:
-                cmd_parser = cmd
-
-        if cmd_parser is None:
-            raise DispatchNotFoundError(cmd_parse[0])
-        
-        # Call the parser.
-        args = cmd_parser.parse_args(cmd_parse)
-        args.func()
 
     def _prompt(self) -> str:
         """

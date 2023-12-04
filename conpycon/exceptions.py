@@ -44,23 +44,23 @@ class CommandNoCommandsError(CommandError):
         self.message = f"Command file '{fname}' does not contain a 'commands' section"
         super().__init__(self.message)
 
-class CommandNoFuncError(CommandError):
+class CommandNoActionError(CommandError):
     """
     Brief:
-        This error is raised if there is no 'func' section in a command.
+        This error is raised if there is no 'action' section in a command.
     """
     def __init__(self, name: str):
-        self.message = f"Command '{name}' does not contain a 'func' parameter"
+        self.message = f"Command '{name}' does not contain an 'action' parameter"
         super().__init__(self.message)
 
-class CommandFuncNotFound(CommandError):
+class CommandActionNotFound(CommandError):
     """
     Brief:
-        This error is raised if the function specified in the 'func' section
+        This error is raised if the function specified in the 'action' section
         does not exist.
     """
     def __init__(self, cmd_name: str, func_name: str):
-        self.message = f"In command '{cmd_name}': func '{func_name}' does not exist"
+        self.message = f"In command '{cmd_name}': function '{func_name}' does not exist as a registered console action"
         super().__init__(self.message)
 
 """ Dispatch Errors """
